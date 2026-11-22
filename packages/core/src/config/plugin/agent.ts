@@ -51,7 +51,16 @@ export const Plugin = define({
       ).pipe(Effect.map((documents) => documents.filter((document): document is Document => document !== undefined)))
     })
     const load = Effect.fn("ConfigAgentPlugin.load")(function* () {
-      return yield* Effect.forEach(yield* config.entries(), loadEntry).pipe(Effect.map((documents) => documents.flat()))
+      const entries = yield* config.entries()
+      return yield* Effect.forEach(entries, (entry) =>
+        loadEntry(entry).pipe(
+          Effect.map((documents) =>
+            entry.type === "directory" && entry.path === global.config
+              ? preferGlobalModels(documents, entries, entry.path)
+              : documents,
+          ),
+        ),
+      ).pipe(Effect.map((documents) => documents.flat()))
     })
     const loaded = yield* ConfigEntryObserver.observeSources({
       config,
@@ -107,6 +116,36 @@ export const Plugin = define({
     })
   }),
 })
+
+// Global agent Markdown loads after the global JSON documents and would override their models. An explicit
+// `agents.<id>.model` in the same directory's JSON config wins, but is applied only to Markdown agents that already
+// exist, so disabled or removed agents are never recreated by a preference.
+function preferGlobalModels(documents: readonly Document[], entries: readonly Entry[], directory: string) {
+  const models = entries.flatMap((entry) =>
+    entry.type === "document" && entry.path !== undefined && path.dirname(entry.path) === directory
+      ? Object.entries(entry.info.agents ?? {}).flatMap(([id, agent]) =>
+          agent.model === undefined ? [] : [[id, agent.model] as const],
+        )
+      : [],
+  )
+  if (models.length === 0) return documents
+  const preferred = new Map(models)
+  return documents.map(
+    (document) =>
+      new Document({
+        ...document,
+        info: Info.make({
+          ...document.info,
+          agents: Object.fromEntries(
+            Object.entries(document.info.agents ?? {}).map(([id, agent]) => [
+              id,
+              preferred.has(id) ? ConfigAgent.Info.make({ ...agent, model: preferred.get(id) }) : agent,
+            ]),
+          ),
+        }),
+      }),
+  )
+}
 
 function expandPermissions(rules: Permission.Ruleset, home: string): Permission.Ruleset {
   // Expand only resources tools resolve as filesystem paths. Bash resources are raw shell text:

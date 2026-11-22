@@ -1,8 +1,8 @@
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
-import { onMount } from "solid-js"
+import { For, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
-import { DialogStoryRuntime } from "@/components-lab/dialog-story-runtime"
+import { createMemoryStorage, createStoryFetch, DialogStoryRuntime } from "@/components-lab/dialog-story-runtime"
 import type { ModelSelection } from "./selection"
 import { DialogSelectModel } from "./select-dialog"
 
@@ -101,7 +101,7 @@ const models: StoryModel[] = [
 
 const keyOf = (model: StoryModel) => `${model.provider.id}:${model.id}`
 
-function SelectorStory(props: { favorite?: boolean; provider?: string; empty?: boolean }) {
+function SelectorStory(props: { favorite?: boolean; provider?: string; empty?: boolean; agent?: string }) {
   const dialog = useDialog()
 
   const [store, setStore] = createStore<{ current: string; favorite: string[]; variant?: string }>({
@@ -128,6 +128,8 @@ function SelectorStory(props: { favorite?: boolean; provider?: string; empty?: b
         setStore("favorite", (ids) => (ids.includes(id) ? ids.filter((entry) => entry !== id) : [id, ...ids]))
       },
     },
+    // The chat's agent, named as the config would: Plan's own model, not Build's.
+    agent: () => ({ name: props.agent ?? "build", model: { providerID: "anthropic", modelID: "claude-sonnet-5" } }),
     list: () => (props.empty ? [] : models),
     cycle() {},
     set: (key: { providerID: string; modelID: string } | undefined) => {
@@ -192,4 +194,43 @@ export const NoModels = {
       <SelectorStory empty />
     </DialogStoryRuntime>
   ),
+}
+
+// Records the config writes the picker sends, so a spec reads what was saved next to the model the session still uses.
+// The chat is on the Plan agent, whose default is Claude Sonnet 5, so a save writes Plan's model, not Build's.
+function AgentDefaultStory() {
+  const [requests, setRequests] = createStore<string[]>([])
+  const storyFetch = createStoryFetch()
+
+  const platform = {
+    platform: "web" as const,
+    openExternal() {},
+    restart: async () => {},
+    notify: async () => {},
+    storage: createMemoryStorage(),
+    fetch: Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init)
+
+        if (request.method === "PATCH" && new URL(request.url).pathname === "/api/experimental/config")
+          setRequests(requests.length, await request.clone().text())
+
+        return storyFetch(input, init)
+      },
+      { preconnect: storyFetch.preconnect },
+    ),
+  }
+
+  return (
+    <DialogStoryRuntime platform={platform}>
+      <SelectorStory agent="plan" />
+      <ul data-slot="config-requests">
+        <For each={requests}>{(body) => <li>{body}</li>}</For>
+      </ul>
+    </DialogStoryRuntime>
+  )
+}
+
+export const AgentDefault = {
+  render: () => <AgentDefaultStory />,
 }

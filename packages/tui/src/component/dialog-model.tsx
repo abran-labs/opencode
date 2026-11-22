@@ -11,6 +11,7 @@ import { useData } from "../context/data"
 import { modelPreferenceKey } from "../model-preference"
 import { useLocation } from "../context/location"
 import { useNewDesigns } from "../config"
+import { useSetAgentDefault } from "./dialog-agent-default"
 import { DialogFreeModels } from "./dialog-model-free"
 import { FavoriteMarker, isFreeModel, prioritizeFavorites, sortModelOptions } from "./model-options"
 
@@ -57,6 +58,7 @@ function DialogConnectedModels(props: {
   onConnect: () => void
 }) {
   const local = useLocal()
+  const setAgentDefault = useSetAgentDefault()
   const newDesigns = useNewDesigns()
   const data = useData()
   const location = useLocation()
@@ -217,6 +219,11 @@ function DialogConnectedModels(props: {
           onTrigger: (option) => {
             local.model.toggleFavorite(option.value as { providerID: string; modelID: string })
           },
+        },
+        {
+          command: "model.dialog.agent_default",
+          title: newDesigns() ? "set as agent default" : "Set as agent default",
+          onTrigger: (option) => setAgentDefault(option.value as { providerID: string; modelID: string }),
         },
       ]}
       onFilter={setQuery}

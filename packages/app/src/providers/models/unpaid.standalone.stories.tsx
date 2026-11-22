@@ -41,8 +41,17 @@ function SelectModelWithoutProviders(props: { count: number }) {
 
   const [selected, setSelected] = createSignal<string | undefined>("deepseek-v4-flash-free")
 
+  const [favorites, setFavorites] = createSignal<string[]>([])
+
   const model = {
     ...local.model,
+    // Chat on Plan, whose default is North Mini Code Free.
+    agent: () => ({ name: "plan", model: { providerID: "opencode", modelID: "north-mini-code-free" } }),
+    favorite: {
+      list: () => models().filter((item) => favorites().includes(item.id)),
+      toggle: (key: { providerID: string; modelID: string }) =>
+        setFavorites((ids) => (ids.includes(key.modelID) ? ids.filter((id) => id !== key.modelID) : [...ids, key.modelID])),
+    },
     list: models,
     current: () => models().find((item) => item.id === selected()),
     set: (key) => setSelected(key?.modelID),

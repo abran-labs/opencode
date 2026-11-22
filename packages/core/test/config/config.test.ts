@@ -1,6 +1,7 @@
 import path from "path"
 import fs from "fs/promises"
 import { describe, expect, test } from "bun:test"
+import { parse } from "jsonc-parser"
 import { Arbitrary, Effect, Fiber, Layer, Logger, Schema, Stream, Tracer } from "effect"
 import { Config } from "@opencode/core/config"
 import { ConfigDiscovery } from "@opencode/core/config/discovery"
@@ -2390,6 +2391,40 @@ describe("Config", () => {
             ),
           )
         })
+      }),
+    ),
+  )
+  it.live("patches global agent models without touching other settings", () =>
+    withTempDir((tmp) =>
+      Effect.gen(function* () {
+        const global = path.join(tmp.path, "global")
+        const file = path.join(global, "opencode.jsonc")
+        yield* Effect.promise(async () => {
+          await fs.mkdir(global, { recursive: true })
+          await fs.writeFile(file, '{\n  // keep\n  "shell": "zsh",\n  "agents": { "build": { "steps": 3 } }\n}\n')
+        })
+        const read = () => Effect.promise(() => Bun.file(file).text())
+        return yield* Effect.gen(function* () {
+          const config = yield* Config.Service
+          yield* config.update!({
+            agents: {
+              build: { model: "anthropic/claude-sonnet#high" },
+              plan: { model: "openai/gpt-5" },
+            },
+          })
+          const set = yield* read()
+          expect(set).toContain("// keep")
+          expect(parse(set)).toEqual({
+            shell: "zsh",
+            agents: { build: { steps: 3, model: "anthropic/claude-sonnet#high" }, plan: { model: "openai/gpt-5" } },
+          })
+
+          yield* config.update!({ agents: { build: { model: null } } })
+          expect(parse(yield* read())).toEqual({
+            shell: "zsh",
+            agents: { build: { steps: 3 }, plan: { model: "openai/gpt-5" } },
+          })
+        }).pipe(Effect.provide(testLayer(tmp.path, global)))
       }),
     ),
   )

@@ -209,6 +209,11 @@ export function createComposerModelSelection(input: {
     key,
     current,
     recent: recentModels,
+    agent: () => {
+      const item = input.agent()
+
+      return item && { name: item.name, model: item.model, variant: item.variant }
+    },
     favorite: { list: favoriteModels, toggle: models.favorite.toggle },
     list: models.list,
     cycle(direction: 1 | -1) {

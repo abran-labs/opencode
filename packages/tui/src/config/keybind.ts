@@ -163,6 +163,7 @@ export const Definitions = {
   "stash.delete": keybind("ctrl+d", "Delete stash entry"),
   "model.dialog.provider": keybind("ctrl+a", "Open provider list from model dialog"),
   "model.dialog.favorite": keybind("ctrl+f", "Toggle model favorite status"),
+  "model.dialog.agent_default": keybind("ctrl+g", "Set highlighted model as current agent default"),
   "model.dialog.usage": keybind("ctrl+u", "Open usage limits from model dialog"),
   "model.list": keybind("<leader>m", "List available models"),
   "model.cycle_recent": keybind("f2", "Next recently used model"),

@@ -563,6 +563,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       preview,
       current,
       recent,
+      // The agent the chat runs on, whose configured model the pickers offer to replace.
+      agent: () => {
+        const item = agent.current()
+
+        return item && { name: item.name, model: item.model, variant: item.variant }
+      },
       favorite: { list: favorite, toggle: models.favorite.toggle },
       list: models.list,
       trackSessionCommit(sessionID: string, selection: { agent: string; model: ModelKey; variant?: string }) {
@@ -730,5 +736,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   },
 })
 
-export type ModelSelection = Omit<ReturnType<typeof useLocal>["model"], "trackSessionCommit" | "preview"> &
-  Partial<Pick<ReturnType<typeof useLocal>["model"], "trackSessionCommit" | "preview">>
+/** The agent a chat runs on and the model its config names, which the pickers offer to replace. */
+export type AgentModelRef = {
+  name: string
+  model?: { providerID: string; modelID: string }
+  variant?: string
+}
+
+export type ModelSelection = Omit<ReturnType<typeof useLocal>["model"], "trackSessionCommit" | "preview" | "agent"> &
+  Partial<Pick<ReturnType<typeof useLocal>["model"], "trackSessionCommit" | "preview">> & {
+    agent?: () => AgentModelRef | undefined
+  }

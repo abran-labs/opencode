@@ -30,6 +30,8 @@ import { SearchHighlight, SearchList, type SearchListHandle, type SearchListRow 
 import { Tooltip } from "@opencode/ui/tooltip"
 import { TextInput } from "@opencode/ui/text-input"
 import { ModelTooltip } from "./tooltip"
+import { DefaultModelPin, ModelDefaultBadge, useAgentDefault } from "./agent-default"
+import { withAgentDefault } from "./agent-default-selection"
 import { ModelDetails } from "./details"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ExternalLink } from "@/runtime/platform/external-link"
@@ -81,6 +83,8 @@ type ModelItem = ReturnType<ModelState["list"]>[number]
 
 const favoriteKeybind = parseKeybind("mod+f")
 
+const agentDefaultKeybind = parseKeybind("mod+g")
+
 const modelKey = (model: ModelItem) => `${model.provider.id}:${model.id}`
 
 const sortModelGroups = (a: { category: string; items: ModelItem[] }, b: { category: string; items: ModelItem[] }) => {
@@ -114,6 +118,8 @@ const ModelList: Component<{
     onSelect: props.onSelect,
   })
 
+  const agentDefault = useAgentDefault(props.model)
+
   const [store, setStore] = createStore<{
     search: string
     active: string
@@ -125,7 +131,9 @@ const ModelList: Component<{
   })
 
   const models = createMemo(() => controller.models(store.search))
-  const modelGroups = createMemo(() => controller.groups(models()))
+  // The agent's default leads the list and is left out of its provider group, so it shows once.
+  const pinned = createMemo(() => models().find(agentDefault.is))
+  const modelGroups = createMemo(() => controller.groups(models().filter((item) => item !== pinned())))
   const managed = createMemo(() => consoleModelGroup(controller.all()))
   const expanded = (provider: string) => store.search.length > 0 || !store.collapsed[provider]
   const managedIDs = createMemo(() => new Set(managed()?.providers.map((provider) => provider.id) ?? []))
@@ -134,8 +142,9 @@ const ModelList: Component<{
   const visibleModels = () => {
     const groups = modelGroups()
     const first = groups.findIndex((group) => managedIDs().has(group.category))
+    const lead = pinned()
 
-    return groups.flatMap((group, index) => {
+    return [...(lead ? [lead] : []), ...groups.flatMap((group, index) => {
       if (!managedIDs().has(group.category)) return expanded(group.category) ? group.items : []
 
       if (index !== first || !expanded(CONSOLE_GROUP_KEY)) return []
@@ -143,7 +152,7 @@ const ModelList: Component<{
       return groups
         .filter((item) => managedIDs().has(item.category) && expanded(item.category))
         .flatMap((item) => item.items)
-    })
+    })]
   }
 
   let scrollRef: HTMLDivElement | undefined
@@ -219,12 +228,14 @@ const ModelList: Component<{
                     <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
                   </Show>
                   <Show when={usage(item)}>{(value) => <ModelUsageTag usage={value()} />}</Show>
+                  <ModelDefaultBadge item={item} agentDefault={agentDefault} othersOnly />
                 </div>
               </div>
-              <div data-slot="settings-row-control" class="size-4">
+              <div data-slot="settings-row-control" class="flex items-center gap-1">
                 <Show when={controller.current() === modelKey(item)}>
-                  <Icon name="check" class="shrink-0 text-v2-icon-icon-base" />
+                  <Icon name="check" class="size-4 shrink-0 text-v2-icon-icon-base" />
                 </Show>
+                <DefaultModelPin item={item} agentDefault={agentDefault} mobile />
               </div>
             </button>
           )}
@@ -287,6 +298,20 @@ const ModelList: Component<{
             when={models().length > 0}
             fallback={<div class="settings-models-status">{language.t("dialog.model.empty")}</div>}
           >
+            <Show when={pinned()}>
+              {(item) => (
+                <section data-slot="model-default-section">
+                  <h3 class="settings-models-group-header">
+                    <span class="settings-models-group-label">
+                      <bdi class="settings-models-group-title">
+                        {language.t("dialog.model.agentDefault.section", { agent: agentDefault.label() ?? "" })}
+                      </bdi>
+                    </span>
+                  </h3>
+                  <ModelRows items={[item()]} mobile={props.mobile} />
+                </section>
+              )}
+            </Show>
             <ProviderModelSections
               groups={modelGroups()}
               managed={managed()}
@@ -323,7 +348,6 @@ export function ModelSelectorDrawer(props: {
   })
 
   const chatgptPlan = createChatgptPlan(controller.current)
-
   const manage = async () => {
     const { DialogManageModels } = await import("./manage")
     void dialog.show(() => <DialogManageModels />)
@@ -376,6 +400,7 @@ function ModelDrawer(props: {
       if (effect.action === "manage") return props.onManage()
 
       if (effect.action === "connect") return props.onConnect?.()
+
       queueMicrotask(props.onClose)
     })
   }
@@ -554,8 +579,8 @@ function createProviderLabels(all: () => ModelItem[]) {
 
 type ModelGroup = { category: string; items: ModelItem[]; title?: string }
 
-// Favorites and recent models lead the list until a search narrows it. As in the TUI, they then leave their provider
-// group, so no model is listed twice.
+// The current agent's default leads, then favorites and recent models, until a search narrows the rest. Each model is
+// listed once, in the first section that has it. As in the TUI, they leave their provider group.
 function withSections(input: {
   groups: ModelGroup[]
   favorites: ModelItem[]
@@ -632,6 +657,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     onSelect: () => dialog.close(),
   })
 
+  const agentDefault = useAgentDefault(props.model)
   const labels = createProviderLabels(controller.all)
   const chatgptPlan = createChatgptPlan(controller.current)
   const usage = createModelUsage({ refresh: true })
@@ -648,15 +674,21 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
 
   const groups = createMemo((): ModelGroup[] => {
     const providers = controller.groups(controller.models(query.search))
+    const title = language.t("dialog.model.agentDefault.section", { agent: agentDefault.label() ?? "" })
 
-    if (query.search.trim()) return providers
+    // A search keeps the default on top only when it matches.
+    if (query.search.trim()) return withAgentDefault(providers, agentDefault.is, title)
 
-    return withSections({
-      groups: providers,
-      favorites: controller.favorites(),
-      recent: controller.recent(),
-      titles: { favorite: language.t("dialog.model.favorites"), recent: language.t("dialog.model.recent") },
-    })
+    return withAgentDefault(
+      withSections({
+        groups: providers,
+        favorites: controller.favorites(),
+        recent: controller.recent(),
+        titles: { favorite: language.t("dialog.model.favorites"), recent: language.t("dialog.model.recent") },
+      }),
+      agentDefault.is,
+      title,
+    )
   })
 
   // A row that still shows the same model in the same section keeps its object, so a narrower search re-renders none of
@@ -711,6 +743,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     const options = menuOptions(item)
 
     if (index < options.length) return controller.select(item, options[index] ?? null)
+
     toggleFavorite(item, input)
   }
 
@@ -950,6 +983,14 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
       return
     }
 
+    if (matchKeybind(agentDefaultKeybind, event)) {
+      if (!active) return
+      event.preventDefault()
+      void agentDefault.save(active.item)
+
+      return
+    }
+
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
       setQuery("navigated", true)
       dispatch({ type: "keyboard", id: active?.id, repeat: event.repeat })
@@ -1032,6 +1073,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
           <Show when={item().latest}>
             <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
           </Show>
+          <ModelDefaultBadge item={item()} agentDefault={agentDefault} othersOnly />
         </span>
         {/* The active row shows its variant instead; its flyout leads with the budget. */}
         <Show when={!active() && budget()}>
@@ -1049,6 +1091,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
             <Icon name="chevron-right" />
           </span>
         </Show>
+        <DefaultModelPin item={item()} agentDefault={agentDefault} />
       </button>
     )
   }

@@ -721,9 +721,29 @@ export function createStoryFetch(overrides: IntegrationInfo[] = []): typeof fetc
             request: { settings: {}, headers: {}, body: {} },
             permissions: [],
           },
+          {
+            id: "explore",
+            name: "Explore",
+            mode: "subagent",
+            hidden: false,
+            model: { providerID: "opencode-go", id: "kimi-k3", variant: "fast" },
+            request: { settings: {}, headers: {}, body: {} },
+            permissions: [],
+          },
+          {
+            id: "review",
+            name: "Review",
+            mode: "subagent",
+            hidden: false,
+            model: { providerID: "opencode", id: "claude-opus-5-5", variant: "high" },
+            request: { settings: {}, headers: {}, body: {} },
+            permissions: [],
+          },
         ],
       })
     }
+
+    if (pathname === "/api/experimental/config") return noContentResponse()
 
     if (pathname === "/api/vcs") {
       return jsonResponse({ location, data: { branch: { current: "main", default: "main" } } })

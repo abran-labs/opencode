@@ -12,11 +12,15 @@ import { isFreeModel } from "@/providers/models/models"
 import { useIntegrations } from "@/providers/catalog/integrations"
 import { decode64 } from "@/runtime/persistence/base64"
 import { useLanguage } from "@/runtime/i18n/language"
+import { matchKeybind, parseKeybind } from "@/shell/commands/command"
 import { ModelTooltip } from "./tooltip"
+import { DefaultModelPin, FavoriteStar, ModelDefaultBadge, useAgentDefault } from "./agent-default"
 
 type ModelState = ModelSelection
 
 const featuredProviders = ["opencode", "openai", "anthropic", "google", "github-copilot"]
+
+const agentDefaultKeybind = parseKeybind("mod+g")
 
 const displayModelName = (name: string) => name.replace(/\s+(?:\(free\)|free)$/i, "")
 
@@ -28,6 +32,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const directory = () => decode64(local.slug())
   const integrations = useIntegrations(directory)
   const language = useLanguage()
+  const agentDefault = useAgentDefault(props.model)
   const modelKey = (item: ReturnType<ModelState["list"]>[number]) => `${item.provider.id}:${item.id}`
 
   const currentKey = createMemo(() => {
@@ -39,7 +44,13 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const providerName = (provider: { id: string; name: string }) =>
     provider.id === "opencode" ? language.t("provider.connect.opencode.name") : provider.name
 
+  const favorite = (item: ReturnType<ModelState["list"]>[number]) =>
+    model.favorite.list().some((entry) => modelKey(entry) === modelKey(item))
+
   const freeModels = createMemo(() => model.list().filter(isFreeModel))
+
+  const toggleFavorite = (item: ReturnType<ModelState["list"]>[number]) =>
+    model.favorite.toggle({ providerID: item.provider.id, modelID: item.id })
 
   const openProviders = (provider?: string) => {
     void import("@/providers/connect/dialog").then((x) => {
@@ -64,7 +75,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
 
       if (!listEl) return
-      const buttons = Array.from(listEl.querySelectorAll<HTMLButtonElement>("button"))
+      const buttons = Array.from(listEl.querySelectorAll<HTMLButtonElement>("button[data-model-row]"))
 
       if (buttons.length === 0) return
       const index = buttons.findIndex((button) => button === document.activeElement)
@@ -115,20 +126,35 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                       />
                     }
                   >
-                    <button
-                      type="button"
-                      class="flex w-full scroll-my-3.5 flex-row items-center gap-1.5 rounded-md px-3 py-2 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-overlay-simple-overlay-hover focus-visible:-outline-offset-2"
-                      onClick={() => selectModel(item)}
-                    >
-                      <span class="min-w-0 truncate">{displayModelName(item.name)}</span>
-                      <Badge class="shrink-0">{language.t("model.tag.free")}</Badge>
-                      <Show when={item.latest}>
-                        <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
-                      </Show>
-                      <Show when={currentKey() === modelKey(item)}>
-                        <Icon name="check" class="ml-auto size-4 shrink-0 text-v2-icon-icon-base" />
-                      </Show>
-                    </button>
+                    <div class="flex w-full items-center">
+                      <button
+                        type="button"
+                        data-model-row
+                        onKeyDown={(event) => {
+                          if (!matchKeybind(agentDefaultKeybind, event)) return
+                          event.preventDefault()
+                          void agentDefault.save(item)
+                        }}
+                        class="flex min-w-0 flex-1 scroll-my-3.5 flex-row items-center gap-1.5 rounded-md px-3 py-2 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-overlay-simple-overlay-hover focus-visible:-outline-offset-2"
+                        onClick={() => selectModel(item)}
+                      >
+                        <span class="min-w-0 truncate">{displayModelName(item.name)}</span>
+                        <Badge class="shrink-0">{language.t("model.tag.free")}</Badge>
+                        <Show when={item.latest}>
+                          <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
+                        </Show>
+                        <ModelDefaultBadge item={item} agentDefault={agentDefault} />
+                        <Show when={currentKey() === modelKey(item)}>
+                          <Icon name="check" class="ml-auto size-4 shrink-0 text-v2-icon-icon-base" />
+                        </Show>
+                      </button>
+                      <FavoriteStar
+                        active={favorite(item)}
+                        label={favorite(item) ? language.t("dialog.model.unfavorite") : language.t("dialog.model.favorite")}
+                        onToggle={() => toggleFavorite(item)}
+                      />
+                      <DefaultModelPin item={item} agentDefault={agentDefault} />
+                    </div>
                   </Tooltip>
                 )}
               </For>

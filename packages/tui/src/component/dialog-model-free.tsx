@@ -5,6 +5,7 @@ import { useLocal } from "../context/local"
 import { useLocation } from "../context/location"
 import { modelPreferenceKey } from "../model-preference"
 import { DialogSelect } from "../ui/dialog-select"
+import { useSetAgentDefault } from "./dialog-agent-default"
 import { FavoriteMarker, ModelDetail, isFreeModel, prioritizeFavorites } from "./model-options"
 
 /** Model picker for users without a connected provider, under the "new-designs" experiment. */
@@ -13,6 +14,7 @@ export function DialogFreeModels(props: {
   onConnect: () => void
 }) {
   const local = useLocal()
+  const setAgentDefault = useSetAgentDefault()
   const data = useData()
   const location = useLocation()
   const [query, setQuery] = createSignal("")
@@ -66,6 +68,11 @@ export function DialogFreeModels(props: {
           command: "model.dialog.favorite",
           title: (option) => (isFavorite(option?.value) ? "unfavorite" : "favorite"),
           onTrigger: (option) => local.model.toggleFavorite(option.value),
+        },
+        {
+          command: "model.dialog.agent_default",
+          title: "set as agent default",
+          onTrigger: (option) => setAgentDefault(option.value),
         },
       ]}
       onFilter={setQuery}
