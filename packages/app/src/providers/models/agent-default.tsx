@@ -1,5 +1,7 @@
-import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { Badge } from "@opencode/ui/badge"
+import { Icon } from "@opencode/ui/icon"
+import { Menu } from "@opencode/ui/menu"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLocal, type ModelSelection } from "@/providers/models/selection"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -58,11 +60,13 @@ export function useAgentDefault(input?: ModelSelection) {
     if (directory) void data.location.agent.sync({ directory }).catch(() => undefined)
   })
 
+  const agents = createMemo(() =>
+    normalizeAgentList(data.location.agent.list({ directory: location().directory }) ?? []).filter((entry) => !entry.hidden),
+  )
   const owners = createMemo(() => {
     const byModel = new Map<string, string[]>()
     const active = agent()
-    const agents = normalizeAgentList(data.location.agent.list({ directory: location().directory }) ?? [])
-    const visible = agents.filter((entry) => !entry.hidden && entry.name !== active?.name)
+    const visible = agents().filter((entry) => entry.name !== active?.name)
     for (const entry of active ? [active, ...visible] : visible) {
       const base = entry.model && modelKey(entry.model)
       const override = saved()[slot(entry.name)]
@@ -72,12 +76,13 @@ export function useAgentDefault(input?: ModelSelection) {
     return byModel
   })
 
-  const save = async (item: Item) => {
-    const target = agent()
-
-    if (!target || is(item)) return
+  const save = async (item: Item, target = agent()) => {
+    if (!target) return
+    const key = `${item.provider.id}:${item.id}`
+    if (owners().get(key)?.includes(target.name)) return
     const directory = location().directory
-    const base = configured()
+    const targetSlot = slot(target.name)
+    const base = target.model && modelKey(target.model)
 
     const result = await server.api.experimental.config
       .update({
@@ -94,7 +99,7 @@ export function useAgentDefault(input?: ModelSelection) {
 
     if (!result) return showToast({ variant: "error", title: language.t("common.requestFailed") })
 
-    setSaved((all) => ({ ...all, [slot(target.name)]: { base, key: `${item.provider.id}:${item.id}` } }))
+    setSaved((all) => ({ ...all, [targetSlot]: { base, key } }))
     void data.location.agent.sync({ directory }).catch(() => undefined)
     showToast({
       variant: "success",
@@ -111,6 +116,7 @@ export function useAgentDefault(input?: ModelSelection) {
     },
     available: () => !!agent(),
     current,
+    otherAgents: () => agents().filter((entry) => entry.name !== agent()?.name),
     owners: (item: Item, othersOnly?: boolean) =>
       (owners().get(`${item.provider.id}:${item.id}`) ?? [])
         .filter((name) => !othersOnly || name !== agent()?.name)
@@ -181,6 +187,36 @@ export function DefaultModelPin(props: { item: Item; agentDefault: AgentDefault;
           <PinIcon filled={props.agentDefault.is(props.item)} />
         </span>
       </Tooltip>
+      <Show when={props.agentDefault.otherAgents().length}>
+        <Menu gutter={4} modal={false} placement="bottom-end">
+          <Menu.Trigger
+            as="span"
+            role="button"
+            tabIndex={0}
+            data-slot="model-agent-menu"
+            aria-label={language.t("dialog.model.agentDefault.other")}
+            title={language.t("dialog.model.agentDefault.other")}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <Icon name="chevron-down" class="size-3" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
+              <Menu.Group>
+                <Menu.GroupLabel>{language.t("dialog.model.agentDefault.other")}</Menu.GroupLabel>
+                <For each={props.agentDefault.otherAgents()}>
+                  {(target) => (
+                    <Menu.Item onSelect={() => void props.agentDefault.save(props.item, target)}>
+                      {target.name.charAt(0).toUpperCase() + target.name.slice(1)}
+                    </Menu.Item>
+                  )}
+                </For>
+              </Menu.Group>
+            </Menu.Content>
+          </Menu.Portal>
+        </Menu>
+      </Show>
     </Show>
   )
 }

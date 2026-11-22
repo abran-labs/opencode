@@ -239,6 +239,16 @@
   }
 }
 
+[data-slot="model-agent-menu"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 24px;
+  cursor: pointer;
+  color: var(--v2-icon-icon-muted);
+}
+
 [data-slot="model-default-pin"],
 [data-slot="model-favorite-star"] {
   display: inline-flex;

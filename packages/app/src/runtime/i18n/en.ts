@@ -175,6 +175,7 @@ export const dict = {
   "dialog.model.agentDefault.section": "Default for {{agent}}",
   "dialog.model.agentDefault.badge": "Default for {{agent}}",
   "dialog.model.agentDefault.action": "Set as default model",
+  "dialog.model.agentDefault.other": "Set default for another agent",
   "dialog.model.agentDefault.saved": "{{agent}} now defaults to {{model}}",
 
   "dialog.model.unpaid.freeModels.title": "Free models provided by OpenCode",

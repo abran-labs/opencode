@@ -39,6 +39,18 @@ story("the pin saves the current agent's default, which leads the list once", as
   await expect(saved).toHaveCount(2)
 })
 
+story("assigns a model to a subagent from the row without switching the chat", async ({ page, mount }) => {
+  await mount("app-dialog-model-selector--agent-default")
+  const row = page.getByRole("option", { name: /Claude Sonnet 5/ })
+  await row.getByRole("button", { name: "Set default for another agent" }).click()
+  await page.getByRole("menuitem", { name: "Explore", exact: true }).click()
+  await expect(page.locator('[data-slot="config-requests"] li')).toHaveText(
+    JSON.stringify({ agents: { explore: { model: "anthropic/claude-sonnet-5" } } }),
+  )
+  await expect(row).toContainText("Default for Explore")
+  await expect(page.getByText("Default for Plan", { exact: true })).toBeVisible()
+})
+
 story("the free picker marks favorites and defaults without moving the rows", async ({ page, mount }) => {
   await mount("app-dialog-select-model--without-providers")
   const rows = page.locator("button[data-model-row]")
