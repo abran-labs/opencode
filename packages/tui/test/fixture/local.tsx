@@ -27,6 +27,8 @@ export async function renderLocal(
     preferences?: Partial<ModelPreference>
     args?: Args
     fetch?: FetchHandler
+    newDesigns?: boolean
+    width?: number
   } = {},
 ) {
   const temporary = await tmpdir()
@@ -60,7 +62,7 @@ export async function renderLocal(
     () => (
       <TestTuiContexts paths={{ state: temporary.path }}>
         <ArgsProvider {...input.args}>
-          <ConfigProvider config={createTuiResolvedConfig()}>
+          <ConfigProvider config={createTuiResolvedConfig({ experimental: { "new-designs": input.newDesigns ?? false } })}>
             <Keymap.Provider>
               <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}>
                 <ToastProvider>
@@ -86,7 +88,7 @@ export async function renderLocal(
         </ArgsProvider>
       </TestTuiContexts>
     ),
-    { width: 100, height: 30, kittyKeyboard: true },
+    { width: input.width ?? 100, height: 30, kittyKeyboard: true },
   )
   await waitForModel(() => local !== undefined && local.model.ready)
   await data.location.sync()
