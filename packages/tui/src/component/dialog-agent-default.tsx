@@ -14,32 +14,16 @@ export function DialogAgentDefault(props: { model: { providerID: string; modelID
   const dialog = useDialog()
   const toast = useToast()
 
-  const configured = createMemo(() => {
-    const agents = (data.location.config.list(location.ref) ?? []).findLast(
-      (entry) => entry.type === "document" && entry.info.agents !== undefined,
-    )
-    return agents?.type === "document" ? agents.info.agents : undefined
-  })
+  const agents = createMemo(() => (data.location.agent.list(location.ref) ?? []).filter((agent) => !agent.hidden))
 
   const options = createMemo(() =>
-    (data.location.agent.list(location.ref) ?? [])
-      .filter((agent) => !agent.hidden)
-      .map((agent) => {
-        const explicit = configured()?.[agent.id]?.model
-        const model =
-          typeof explicit === "string"
-            ? explicit
-            : explicit
-              ? `${explicit.providerID}/${explicit.model}`
-              : agent.model && `${agent.model.providerID}/${agent.model.id}`
-        return {
-          value: agent.id,
-          title: agent.id,
-          description: agent.description,
-          category: agent.mode === "subagent" ? "Subagents" : "Primary agents",
-          footer: model,
-        }
-      }),
+    agents().map((agent) => ({
+      value: agent.id,
+      title: agent.id,
+      description: agent.description,
+      category: agent.mode === "subagent" ? "Subagents" : "Primary agents",
+      footer: agent.model && `${agent.model.providerID}/${agent.model.id}${agent.model.variant ? `#${agent.model.variant}` : ""}`,
+    })),
   )
 
   return (
@@ -50,14 +34,21 @@ export function DialogAgentDefault(props: { model: { providerID: string; modelID
       options={options()}
       onSelect={(option) => {
         dialog.clear()
+        // Only the same model keeps its variant; another model's variant may not exist.
+        const current = agents().find((agent) => agent.id === option.value)?.model
+        const variant =
+          current?.providerID === props.model.providerID && current.id === props.model.modelID
+            ? current.variant
+            : undefined
+        const selection = `${props.model.providerID}/${props.model.modelID}${variant ? `#${variant}` : ""}`
         client.api.experimental.config
           .update({
-            agents: { [option.value]: { model: `${props.model.providerID}/${props.model.modelID}` } },
+            agents: { [option.value]: { model: selection } },
           })
           .then(() =>
             toast.show({
               variant: "success",
-              message: `${option.value} now defaults to ${props.model.providerID}/${props.model.modelID}`,
+              message: `${option.value} now defaults to ${selection}`,
             }),
           )
           .catch(toast.error)

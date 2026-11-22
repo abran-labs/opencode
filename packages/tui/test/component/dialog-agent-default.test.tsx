@@ -64,10 +64,14 @@ test.each([100, 44])("free model dialog offers the agent default action at width
   expect(patches).toEqual([])
 })
 
-test("agent picker shows configured defaults", async () => {
+test("agent picker shows the resolved agent model with its variant", async () => {
   await using setup = await renderLocal({
     models: [model("first")],
-    agents: [agent("build"), { ...agent("explore"), mode: "subagent" }],
+    agents: [
+      agent("build", { providerID: "provider", id: "resolved", variant: "high" }),
+      { ...agent("explore", { providerID: "provider", id: "plain" }), mode: "subagent" },
+    ],
+    // Layered config must not be guessed at; only the resolved agent model is shown.
     fetch: (url) => {
       if (url.pathname === "/api/config")
         return json([{ type: "document", info: { agents: { explore: { model: "provider/configured" } } } }])
@@ -78,5 +82,33 @@ test("agent picker shows configured defaults", async () => {
   if (!(setup.renderer.currentFocusedRenderable instanceof InputRenderable))
     await once(setup.renderer, CliRenderEvents.FOCUSED_RENDERABLE)
   setup.mockInput.pressKey("g", { ctrl: true })
-  await setup.waitForFrame((frame) => frame.includes("provider/configured"))
+  await setup.waitForFrame((frame) => frame.includes("provider/resolved#high") && frame.includes("provider/plain"))
+  expect(setup.captureCharFrame()).not.toContain("configured")
+})
+
+test.each([
+  ["same model keeps its variant", "first", "provider/first#high"],
+  ["different model drops the variant", "second", "provider/second"],
+])("%s", async (_name, modelID, expected) => {
+  const patches: unknown[] = []
+  await using setup = await renderLocal({
+    models: [model("first", ["high"]), model("second", ["low"])],
+    agents: [agent("build", { providerID: "provider", id: "first", variant: "high" })],
+    fetch: async (url, request) => {
+      if (url.pathname !== "/api/experimental/config" || request.method !== "PATCH") return
+      patches.push(await request.json())
+      return new Response(null, { status: 204 })
+    },
+  })
+  setup.dialog.replace(() => <DialogModel />)
+  await setup.waitForFrame((frame) => frame.includes("Select model") && frame.includes(modelID))
+  if (!(setup.renderer.currentFocusedRenderable instanceof InputRenderable))
+    await once(setup.renderer, CliRenderEvents.FOCUSED_RENDERABLE)
+  await setup.mockInput.typeText(modelID)
+  await setup.renderOnce()
+  setup.mockInput.pressKey("g", { ctrl: true })
+  await setup.waitForFrame((frame) => frame.includes("Primary agents") && frame.includes("build"))
+  setup.mockInput.pressEnter()
+  await setup.waitFor(() => patches.length === 1)
+  expect(patches[0]).toEqual({ agents: { build: { model: expected } } })
 })
