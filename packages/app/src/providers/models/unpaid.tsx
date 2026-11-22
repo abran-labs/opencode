@@ -47,17 +47,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const favorite = (item: ReturnType<ModelState["list"]>[number]) =>
     model.favorite.list().some((entry) => modelKey(entry) === modelKey(item))
 
-  // The agent's default leads, then favorites, then the rest in catalog order.
-  const freeModels = createMemo(() => {
-    const rank = (item: ReturnType<ModelState["list"]>[number]) => (agentDefault.is(item) ? 0 : favorite(item) ? 1 : 2)
-
-    return model
-      .list()
-      .filter(isFreeModel)
-      .map((item, index) => ({ item, index }))
-      .sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index)
-      .map((entry) => entry.item)
-  })
+  const freeModels = createMemo(() => model.list().filter(isFreeModel))
 
   const toggleFavorite = (item: ReturnType<ModelState["list"]>[number]) =>
     model.favorite.toggle({ providerID: item.provider.id, modelID: item.id })

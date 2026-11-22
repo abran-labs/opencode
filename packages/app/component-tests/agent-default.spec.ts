@@ -38,17 +38,19 @@ story("the pin saves the current agent's default, which leads the list once", as
   await expect(saved).toHaveCount(2)
 })
 
-story("the free picker sorts default, then favorites, and stars without selecting", async ({ page, mount }) => {
+story("the free picker marks favorites and defaults without moving the rows", async ({ page, mount }) => {
   await mount("app-dialog-select-model--without-providers")
   const rows = page.locator("button[data-model-row]")
 
-  await expect(rows.first()).toContainText("North Mini Code")
-  await expect(rows.first()).toContainText("Default for Plan")
-
+  await expect(rows.filter({ hasText: "North Mini Code" })).toContainText("Default for Plan")
+  const names = rows.locator("span.truncate").first()
+  await expect(names).toBeVisible()
+  const labels = rows.locator("span.truncate")
+  const order = await labels.allTextContents()
   await page.getByRole("button", { name: "Favorite" }).nth(2).click()
-  const starred = await rows.nth(1).innerText()
-  expect(starred).toContain("Free")
   await expect(page.getByRole("button", { name: "Unfavorite" })).toHaveCount(1)
-  // The star neither selects the model nor closes the dialog.
-  await expect(rows.first()).toBeVisible()
+  await expect(labels).toHaveText(order)
+  await page.getByRole("button", { name: "Set as default model" }).last().click()
+  await expect(rows.last()).toContainText("Default for Plan")
+  await expect(labels).toHaveText(order)
 })
