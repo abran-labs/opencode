@@ -121,7 +121,19 @@ export class Info extends Schema.Class<Info>("Config.Info")({
 }) {}
 
 export const Patch = Schema.Struct({
-  shell: Schema.NullOr(Schema.String),
+  shell: Schema.NullOr(Schema.String).pipe(optional).annotate({
+    description: "Set the global shell, or clear it with null; omit to leave it unchanged",
+  }),
+  agents: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      model: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[^/#]+\/[^#]+(?:#[^#]+)?$/u))).annotate({
+        description: "Set the agent's global model as provider/model[#variant], or clear it with null",
+      }),
+    }),
+  )
+    .pipe(optional)
+    .annotate({ description: "Per-agent global overrides; omitted agents are left unchanged" }),
 }).annotate({ identifier: "Config.Patch" })
 export interface Patch extends Schema.Schema.Type<typeof Patch> {}
 

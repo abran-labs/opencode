@@ -513,13 +513,23 @@ export const layer = (options?: Options) =>
           const filepath =
             (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "opencode.jsonc")
           const text = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
+          const edits = [
+            ...(patch.shell === undefined ? [] : [{ path: ["shell"], value: patch.shell ?? undefined }]),
+            ...Object.entries(patch.agents ?? {}).map(([name, agent]) => ({
+              path: ["agents", name, "model"],
+              value: agent.model ?? undefined,
+            })),
+          ]
+          if (!edits.length) return
           const updated = yield* Effect.try({
             try: () =>
-              applyEdits(
+              edits.reduce(
+                (text, edit) =>
+                  applyEdits(
+                    text,
+                    modify(text, edit.path, edit.value, { formattingOptions: { tabSize: 2, insertSpaces: true } }),
+                  ),
                 text,
-                modify(text, ["shell"], patch.shell ?? undefined, {
-                  formattingOptions: { tabSize: 2, insertSpaces: true },
-                }),
               ),
             catch: (cause) => new FSUtil.FileSystemError({ method: "config.update", cause }),
           })
