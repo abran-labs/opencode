@@ -595,7 +595,7 @@ function side(point: FlyoutPoint, ax: number, ay: number, bx: number, by: number
 /** Longer than the drawer's 200ms close transition: the deferred action runs even if its end is never reported. */
 export const DRAWER_CLOSE_TIMEOUT_MS = 600
 
-export type ModelDrawerAction = "select" | "manage" | "connect"
+export type ModelDrawerAction = "select" | "manage" | "connect" | "agentDefault"
 
 export type ModelDrawerState =
   /** Never opened: the drawer is not mounted yet. */

@@ -30,6 +30,7 @@ import { SearchHighlight, SearchList, type SearchListHandle, type SearchListRow 
 import { Tooltip } from "@opencode/ui/tooltip"
 import { TextInput } from "@opencode/ui/text-input"
 import { ModelTooltip } from "./tooltip"
+import { useAgentDefault } from "./agent-default-open"
 import { ModelDetails } from "./details"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ExternalLink } from "@/runtime/platform/external-link"
@@ -80,6 +81,8 @@ type ModelState = ModelSelection
 type ModelItem = ReturnType<ModelState["list"]>[number]
 
 const favoriteKeybind = parseKeybind("mod+f")
+
+const agentDefaultKeybind = parseKeybind("mod+g")
 
 const modelKey = (model: ModelItem) => `${model.provider.id}:${model.id}`
 
@@ -323,6 +326,8 @@ export function ModelSelectorDrawer(props: {
   })
 
   const chatgptPlan = createChatgptPlan(controller.current)
+  const agentDefault = useAgentDefault()
+  const currentItem = () => controller.all().find((item) => modelKey(item) === controller.current())
 
   const manage = async () => {
     const { DialogManageModels } = await import("./manage")
@@ -341,6 +346,10 @@ export function ModelSelectorDrawer(props: {
       model={props.model}
       provider={props.provider}
       onConnect={connect}
+      onAgentDefault={() => {
+        const item = currentItem()
+        if (item) void agentDefault(item)
+      }}
       chatgptPlan={chatgptPlan()}
       onClose={() => props.onClose?.()}
     />
@@ -355,6 +364,7 @@ function ModelDrawer(props: {
   onClose: () => void
   onManage: () => void
   onConnect?: () => void
+  onAgentDefault: () => void
 }) {
   const language = useLanguage()
   const [drawer, setDrawer] = createSignal(createModelDrawerState())
@@ -376,6 +386,8 @@ function ModelDrawer(props: {
       if (effect.action === "manage") return props.onManage()
 
       if (effect.action === "connect") return props.onConnect?.()
+
+      if (effect.action === "agentDefault") return props.onAgentDefault()
       queueMicrotask(props.onClose)
     })
   }
@@ -438,6 +450,14 @@ function ModelDrawer(props: {
                   onClick={() => dispatch({ type: "action.selected", action: "manage" })}
                 >
                   {language.t("dialog.model.manage")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  class="w-full !h-10 !justify-start"
+                  icon="models"
+                  onClick={() => dispatch({ type: "action.selected", action: "agentDefault" })}
+                >
+                  {language.t("dialog.model.agentDefault.action")}
                 </Button>
                 <Show when={props.onConnect}>
                   <Button
@@ -711,13 +731,17 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     const options = menuOptions(item)
 
     if (index < options.length) return controller.select(item, options[index] ?? null)
-    toggleFavorite(item, input)
+
+    if (index === options.length) return toggleFavorite(item, input)
+    void agentDefault(item)
   }
 
   const manage = async () => {
     const { DialogManageModels } = await import("./manage")
     void dialog.show(() => <DialogManageModels />)
   }
+
+  const agentDefault = useAgentDefault()
 
   const location = useWorkspaceLocation()
 
@@ -914,7 +938,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     // In the flyout's menu, the arrows move through its items until the back arrow returns to the rows.
     if (item && index !== undefined && !event.metaKey && !event.altKey && !event.ctrlKey) {
       const back = language.direction() === "rtl" ? "ArrowRight" : "ArrowLeft"
-      const count = menuOptions(item).length + 1
+      const count = menuOptions(item).length + 2
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault()
@@ -946,6 +970,14 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
       if (!active) return
       event.preventDefault()
       toggleFavorite(active.item, "keyboard")
+
+      return
+    }
+
+    if (matchKeybind(agentDefaultKeybind, event)) {
+      if (!active) return
+      event.preventDefault()
+      void agentDefault(active.item)
 
       return
     }
@@ -1106,6 +1138,23 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
                     onClick={connect}
                   />
                 </Tooltip>
+                <Tooltip
+                  placement="top"
+                  gutter={4}
+                  value={language.t("dialog.model.agentDefault.action")}
+                  ignoreSafeArea={false}
+                >
+                  <IconButton
+                    variant="ghost-muted"
+                    icon={<Icon name="models" />}
+                    aria-label={language.t("dialog.model.agentDefault.action")}
+                    onClick={() => {
+                      const item =
+                        list?.active()?.item ?? controller.all().find((x) => modelKey(x) === controller.current())
+                      if (item) void agentDefault(item)
+                    }}
+                  />
+                </Tooltip>
                 <Tooltip placement="top" gutter={4} value={language.t("dialog.model.manage")} ignoreSafeArea={false}>
                   <IconButton
                     variant="ghost-muted"
@@ -1218,6 +1267,19 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
                     {favorite(item()) ? language.t("dialog.model.unfavorite") : language.t("dialog.model.favorite")}
                   </span>
                   <Keybind keys={formatKeybindParts("mod+f", language.t)} variant="neutral" class="shrink-0" />
+                </div>
+                <div
+                  data-component="menu-v2-item"
+                  role="menuitem"
+                  data-highlighted={menu() === menuOptions(item()).length + 1 ? "" : undefined}
+                  onMouseEnter={() =>
+                    dispatch({ type: "menu.highlighted", index: menuOptions(item()).length + 1, input: "pointer" })
+                  }
+                  onMouseLeave={() => dispatch({ type: "menu.highlighted", index: undefined, input: "pointer" })}
+                  onClick={() => activateMenu(item(), menuOptions(item()).length + 1, "pointer")}
+                >
+                  <span data-slot="menu-v2-item-content">{language.t("dialog.model.agentDefault.action")}</span>
+                  <Keybind keys={formatKeybindParts("mod+g", language.t)} variant="neutral" class="shrink-0" />
                 </div>
                 <div data-slot="menu-v2-separator" role="separator" />
                 {/* The full name, "Workspace / Provider", where a workspace badge tells the connections apart. */}

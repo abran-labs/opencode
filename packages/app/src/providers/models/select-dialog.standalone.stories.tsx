@@ -1,8 +1,8 @@
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
-import { onMount } from "solid-js"
+import { For, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
-import { DialogStoryRuntime } from "@/components-lab/dialog-story-runtime"
+import { createMemoryStorage, createStoryFetch, DialogStoryRuntime } from "@/components-lab/dialog-story-runtime"
 import type { ModelSelection } from "./selection"
 import { DialogSelectModel } from "./select-dialog"
 
@@ -192,4 +192,42 @@ export const NoModels = {
       <SelectorStory empty />
     </DialogStoryRuntime>
   ),
+}
+
+// Records the config writes the picker sends, so a spec reads what was saved next to the model the session still uses.
+function AgentDefaultStory() {
+  const [requests, setRequests] = createStore<string[]>([])
+  const storyFetch = createStoryFetch()
+
+  const platform = {
+    platform: "web" as const,
+    openExternal() {},
+    restart: async () => {},
+    notify: async () => {},
+    storage: createMemoryStorage(),
+    fetch: Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init)
+
+        if (request.method === "PATCH" && new URL(request.url).pathname === "/api/experimental/config")
+          setRequests(requests.length, await request.clone().text())
+
+        return storyFetch(input, init)
+      },
+      { preconnect: storyFetch.preconnect },
+    ),
+  }
+
+  return (
+    <DialogStoryRuntime platform={platform}>
+      <SelectorStory />
+      <ul data-slot="config-requests">
+        <For each={requests}>{(body) => <li>{body}</li>}</For>
+      </ul>
+    </DialogStoryRuntime>
+  )
+}
+
+export const AgentDefault = {
+  render: () => <AgentDefaultStory />,
 }
