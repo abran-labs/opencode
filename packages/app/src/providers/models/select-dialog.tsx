@@ -30,7 +30,7 @@ import { SearchHighlight, SearchList, type SearchListHandle, type SearchListRow 
 import { Tooltip } from "@opencode/ui/tooltip"
 import { TextInput } from "@opencode/ui/text-input"
 import { ModelTooltip } from "./tooltip"
-import { DefaultModelPin, useAgentDefault } from "./agent-default"
+import { DefaultModelPin, ModelDefaultBadge, useAgentDefault } from "./agent-default"
 import { withAgentDefault } from "./agent-default-selection"
 import { ModelDetails } from "./details"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -228,6 +228,7 @@ const ModelList: Component<{
                     <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
                   </Show>
                   <Show when={usage(item)}>{(value) => <ModelUsageTag usage={value()} />}</Show>
+                  <ModelDefaultBadge item={item} agentDefault={agentDefault} othersOnly />
                 </div>
               </div>
               <div data-slot="settings-row-control" class="flex items-center gap-1">
@@ -1072,6 +1073,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
           <Show when={item().latest}>
             <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
           </Show>
+          <ModelDefaultBadge item={item()} agentDefault={agentDefault} othersOnly />
         </span>
         {/* The active row shows its variant instead; its flyout leads with the budget. */}
         <Show when={!active() && budget()}>

@@ -14,6 +14,7 @@ story("the pin saves the current agent's default, which leads the list once", as
 
   await search.fill("Kimi")
   const row = option(/Kimi K3/)
+  await expect(row).toContainText("Default for Explore")
   await row.hover()
   await row.locator('[data-slot="model-default-pin"]').hover()
   await expect(page.getByText("Set as default model")).toBeVisible()
@@ -43,9 +44,9 @@ story("the free picker marks favorites and defaults without moving the rows", as
   const rows = page.locator("button[data-model-row]")
 
   await expect(rows.filter({ hasText: "North Mini Code" })).toContainText("Default for Plan")
-  const names = rows.locator("span.truncate").first()
+  const names = rows.locator(":scope > span:first-child").first()
   await expect(names).toBeVisible()
-  const labels = rows.locator("span.truncate")
+  const labels = rows.locator(":scope > span:first-child")
   const order = await labels.allTextContents()
   await page.getByRole("button", { name: "Favorite" }).nth(2).click()
   await expect(page.getByRole("button", { name: "Unfavorite" })).toHaveCount(1)

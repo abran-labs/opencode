@@ -14,7 +14,7 @@ import { decode64 } from "@/runtime/persistence/base64"
 import { useLanguage } from "@/runtime/i18n/language"
 import { matchKeybind, parseKeybind } from "@/shell/commands/command"
 import { ModelTooltip } from "./tooltip"
-import { DefaultModelPin, FavoriteStar, useAgentDefault } from "./agent-default"
+import { DefaultModelPin, FavoriteStar, ModelDefaultBadge, useAgentDefault } from "./agent-default"
 
 type ModelState = ModelSelection
 
@@ -143,11 +143,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                         <Show when={item.latest}>
                           <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
                         </Show>
-                        <Show when={agentDefault.is(item)}>
-                          <Badge class="shrink-0" data-slot="model-default-badge">
-                            {language.t("dialog.model.agentDefault.badge", { agent: agentDefault.label() ?? "" })}
-                          </Badge>
-                        </Show>
+                        <ModelDefaultBadge item={item} agentDefault={agentDefault} />
                         <Show when={currentKey() === modelKey(item)}>
                           <Icon name="check" class="ml-auto size-4 shrink-0 text-v2-icon-icon-base" />
                         </Show>

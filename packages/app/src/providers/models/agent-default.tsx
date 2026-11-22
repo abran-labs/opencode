@@ -1,9 +1,11 @@
-import { createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { Badge } from "@opencode/ui/badge"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLocal, type ModelSelection } from "@/providers/models/selection"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useServerSDK } from "@/runtime/server/client"
 import { useData } from "@/runtime/server/current"
+import { normalizeAgentList } from "@/runtime/server/global-sync/utils"
 import { showToast } from "@/shell/notifications/toast"
 import { useWorkspaceLocation } from "@/workspaces/location"
 import { agentDefaultSelection } from "./agent-default-selection"
@@ -51,6 +53,25 @@ export function useAgentDefault(input?: ModelSelection) {
 
   const is = (item: Item) => current() === `${item.provider.id}:${item.id}`
 
+  createEffect(() => {
+    const directory = location().directory
+    if (directory) void data.location.agent.sync({ directory }).catch(() => undefined)
+  })
+
+  const owners = createMemo(() => {
+    const byModel = new Map<string, string[]>()
+    const active = agent()
+    const agents = normalizeAgentList(data.location.agent.list({ directory: location().directory }) ?? [])
+    const visible = agents.filter((entry) => !entry.hidden && entry.name !== active?.name)
+    for (const entry of active ? [active, ...visible] : visible) {
+      const base = entry.model && modelKey(entry.model)
+      const override = saved()[slot(entry.name)]
+      const key = override && override.base === base ? override.key : base
+      if (key) byModel.set(key, [...(byModel.get(key) ?? []), entry.name])
+    }
+    return byModel
+  })
+
   const save = async (item: Item) => {
     const target = agent()
 
@@ -90,9 +111,27 @@ export function useAgentDefault(input?: ModelSelection) {
     },
     available: () => !!agent(),
     current,
+    owners: (item: Item, othersOnly?: boolean) =>
+      (owners().get(`${item.provider.id}:${item.id}`) ?? [])
+        .filter((name) => !othersOnly || name !== agent()?.name)
+        .map((name) => name.charAt(0).toUpperCase() + name.slice(1))
+        .join(", "),
     is,
     save,
   }
+}
+
+export function ModelDefaultBadge(props: { item: Item; agentDefault: AgentDefault; othersOnly?: boolean }) {
+  const language = useLanguage()
+  return (
+    <Show when={props.agentDefault.owners(props.item, props.othersOnly)}>
+      {(names) => (
+        <Badge class="min-w-0 truncate" data-slot="model-default-badge" title={names()}>
+          {language.t("dialog.model.agentDefault.badge", { agent: names() })}
+        </Badge>
+      )}
+    </Show>
+  )
 }
 
 // A pushpin. Outlined when the model is not the default; filled when it is.
