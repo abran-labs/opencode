@@ -9,3 +9,28 @@ export function agentDefaultSelection(target: Target, agent: Agent) {
 
   return `${target.providerID}/${target.modelID}${same && agent.variant ? `#${agent.variant}` : ""}`
 }
+
+type Section<T> = { category: string; items: T[]; title?: string }
+
+/**
+ * Sections with the agent's default moved into a first section of its own. It leaves every other section, so it is
+ * listed once, and the sections that remain keep their order.
+ */
+export function withAgentDefault<T extends { id: string; provider: { id: string } }>(
+  sections: Section<T>[],
+  isDefault: (item: T) => boolean,
+  title: string,
+): Section<T>[] {
+  const item = sections.flatMap((section) => section.items).find(isDefault)
+
+  if (!item) return sections
+
+  return [
+    { category: "default", title, items: [item] },
+    ...sections.flatMap((section) => {
+      const items = section.items.filter((entry) => entry !== item)
+
+      return items.length > 0 ? [{ ...section, items }] : []
+    }),
+  ]
+}

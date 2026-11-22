@@ -12,10 +12,9 @@ import { isFreeModel } from "@/providers/models/models"
 import { useIntegrations } from "@/providers/catalog/integrations"
 import { decode64 } from "@/runtime/persistence/base64"
 import { useLanguage } from "@/runtime/i18n/language"
-import { IconButton } from "@opencode/ui/icon-button"
-import { formatKeybindParts, matchKeybind, parseKeybind } from "@/shell/commands/command"
+import { matchKeybind, parseKeybind } from "@/shell/commands/command"
 import { ModelTooltip } from "./tooltip"
-import { useAgentDefault } from "./agent-default-open"
+import { DefaultModelPin, FavoriteStar, useAgentDefault } from "./agent-default"
 
 type ModelState = ModelSelection
 
@@ -33,7 +32,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const directory = () => decode64(local.slug())
   const integrations = useIntegrations(directory)
   const language = useLanguage()
-  const agentDefault = useAgentDefault()
+  const agentDefault = useAgentDefault(props.model)
   const modelKey = (item: ReturnType<ModelState["list"]>[number]) => `${item.provider.id}:${item.id}`
 
   const currentKey = createMemo(() => {
@@ -45,7 +44,23 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const providerName = (provider: { id: string; name: string }) =>
     provider.id === "opencode" ? language.t("provider.connect.opencode.name") : provider.name
 
-  const freeModels = createMemo(() => model.list().filter(isFreeModel))
+  const favorite = (item: ReturnType<ModelState["list"]>[number]) =>
+    model.favorite.list().some((entry) => modelKey(entry) === modelKey(item))
+
+  // The agent's default leads, then favorites, then the rest in catalog order.
+  const freeModels = createMemo(() => {
+    const rank = (item: ReturnType<ModelState["list"]>[number]) => (agentDefault.is(item) ? 0 : favorite(item) ? 1 : 2)
+
+    return model
+      .list()
+      .filter(isFreeModel)
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index)
+      .map((entry) => entry.item)
+  })
+
+  const toggleFavorite = (item: ReturnType<ModelState["list"]>[number]) =>
+    model.favorite.toggle({ providerID: item.provider.id, modelID: item.id })
 
   const openProviders = (provider?: string) => {
     void import("@/providers/connect/dialog").then((x) => {
@@ -125,11 +140,10 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                       <button
                         type="button"
                         data-model-row
-                        title={`${language.t("dialog.model.agentDefault.action")} (${formatKeybindParts("mod+g", language.t).join("+")})`}
                         onKeyDown={(event) => {
                           if (!matchKeybind(agentDefaultKeybind, event)) return
                           event.preventDefault()
-                          void agentDefault(item)
+                          void agentDefault.save(item)
                         }}
                         class="flex min-w-0 flex-1 scroll-my-3.5 flex-row items-center gap-1.5 rounded-md px-3 py-2 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-overlay-simple-overlay-hover focus-visible:-outline-offset-2"
                         onClick={() => selectModel(item)}
@@ -139,17 +153,21 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                         <Show when={item.latest}>
                           <Badge class="shrink-0">{language.t("model.tag.latest")}</Badge>
                         </Show>
+                        <Show when={agentDefault.is(item)}>
+                          <Badge class="shrink-0" data-slot="model-default-badge">
+                            {language.t("dialog.model.agentDefault.badge", { agent: agentDefault.label() ?? "" })}
+                          </Badge>
+                        </Show>
                         <Show when={currentKey() === modelKey(item)}>
                           <Icon name="check" class="ml-auto size-4 shrink-0 text-v2-icon-icon-base" />
                         </Show>
                       </button>
-                      <IconButton
-                        variant="ghost-muted"
-                        class="shrink-0"
-                        icon={<Icon name="models" />}
-                        aria-label={language.t("dialog.model.agentDefault.action")}
-                        onClick={() => void agentDefault(item)}
+                      <FavoriteStar
+                        active={favorite(item)}
+                        label={favorite(item) ? language.t("dialog.model.unfavorite") : language.t("dialog.model.favorite")}
+                        onToggle={() => toggleFavorite(item)}
                       />
+                      <DefaultModelPin item={item} agentDefault={agentDefault} />
                     </div>
                   </Tooltip>
                 )}

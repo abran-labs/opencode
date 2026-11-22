@@ -1,70 +1,68 @@
-import { createMemo, createSignal, For, onMount, Show } from "solid-js"
-import { Button } from "@opencode/ui/button"
-import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
-import { Icon } from "@opencode/ui/icon"
-import { useDialog } from "@opencode/ui/context/dialog"
-import { useModels } from "@/providers/models/models"
+import { createSignal, Show } from "solid-js"
+import { Tooltip } from "@opencode/ui/tooltip"
+import { useLocal, type ModelSelection } from "@/providers/models/selection"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useServerSDK } from "@/runtime/server/client"
 import { useData } from "@/runtime/server/current"
-import { normalizeAgentList } from "@/runtime/server/global-sync/utils"
 import { showToast } from "@/shell/notifications/toast"
-import { agentDefaultSelection } from "./agent-default-selection"
-import { SettingsList } from "@/settings/list"
 import { useWorkspaceLocation } from "@/workspaces/location"
-import "@/settings/settings.css"
+import { agentDefaultSelection } from "./agent-default-selection"
+import "./select-dialog.css"
 
-type Target = { providerID: string; modelID: string; name: string }
+type Item = { id: string; name: string; provider: { id: string } }
 
-// Saves `target` as an agent's configured model. Never touches the composer or session selection, so cancelling or
-// saving leaves the current session on the model it had.
-export function DialogAgentDefault(props: { model: Target }) {
-  const dialog = useDialog()
+export type AgentDefault = ReturnType<typeof useAgentDefault>
+
+const modelKey = (model: { providerID: string; modelID: string }) => `${model.providerID}:${model.modelID}`
+
+// A save shows at once, before the agents reload. It holds only while the agent still names the model it had when the
+// save began; once the reloaded agent differs, the server's answer wins.
+const [saved, setSaved] = createSignal<Record<string, { base: string | undefined; key: string }>>({})
+
+/**
+ * The current agent's configured default model, and the action that replaces it. Saving never touches the model the
+ * composer or session uses, so the chat keeps the model it had.
+ */
+export function useAgentDefault(input?: ModelSelection) {
   const language = useLanguage()
   const server = useServerSDK()
   const data = useData()
-  const models = useModels()
   const location = useWorkspaceLocation()
-  const [saving, setSaving] = createSignal<string>()
 
-  // The picker lists subagents too, so it loads the agents itself instead of relying on the composer having synced.
-  onMount(() => void data.location.agent.sync({ directory: location().directory }).catch(() => undefined))
+  // Like the pickers, the composer's own selection when it passes one, else the provider's.
+  const selection = input ?? useLocal().model
+  const agent = () => selection.agent?.()
+  const slot = (name: string) => `${location().directory}\n${name}`
 
-  const agents = createMemo(() =>
-    normalizeAgentList(data.location.agent.list({ directory: location().directory }) ?? []).filter(
-      (agent) => !agent.hidden,
-    ),
-  )
+  const configured = () => {
+    const model = agent()?.model
 
-  const groups = createMemo(() => [
-    {
-      title: language.t("dialog.model.agentDefault.primary"),
-      items: agents().filter((agent) => agent.mode !== "subagent"),
-    },
-    {
-      title: language.t("dialog.model.agentDefault.subagents"),
-      items: agents().filter((agent) => agent.mode === "subagent"),
-    },
-  ])
-
-  const current = (agent: ReturnType<typeof agents>[number]) => {
-    if (!agent.model) return language.t("dialog.model.agentDefault.current", { model: language.t("common.default") })
-    const model = models.find(agent.model)?.name ?? `${agent.model.providerID}/${agent.model.modelID}`
-
-    return agent.variant
-      ? language.t("dialog.model.agentDefault.currentVariant", { model, variant: agent.variant })
-      : language.t("dialog.model.agentDefault.current", { model })
+    return model ? modelKey(model) : undefined
   }
 
-  const save = async (agent: ReturnType<typeof agents>[number]) => {
-    if (saving()) return
-    const name = agent.name
-    setSaving(name)
+  const current = () => {
+    const item = agent()
+
+    if (!item) return
+    const override = saved()[slot(item.name)]
+
+    return override && override.base === configured() ? override.key : configured()
+  }
+
+  const is = (item: Item) => current() === `${item.provider.id}:${item.id}`
+
+  const save = async (item: Item) => {
+    const target = agent()
+
+    if (!target || is(item)) return
+    const directory = location().directory
+    const base = configured()
+
     const result = await server.api.experimental.config
       .update({
         agents: {
-          [name]: {
-            model: agentDefaultSelection({ providerID: props.model.providerID, modelID: props.model.modelID }, agent),
+          [target.name]: {
+            model: agentDefaultSelection({ providerID: item.provider.id, modelID: item.id }, target),
           },
         },
       })
@@ -73,78 +71,123 @@ export function DialogAgentDefault(props: { model: Target }) {
         () => false,
       )
 
-    if (!result) {
-      setSaving(undefined)
-      showToast({ variant: "error", title: language.t("common.requestFailed") })
-      return
-    }
+    if (!result) return showToast({ variant: "error", title: language.t("common.requestFailed") })
 
-    void data.location.agent.sync({ directory: location().directory }).catch(() => undefined)
+    setSaved((all) => ({ ...all, [slot(target.name)]: { base, key: `${item.provider.id}:${item.id}` } }))
+    void data.location.agent.sync({ directory }).catch(() => undefined)
     showToast({
       variant: "success",
-      title: language.t("dialog.model.agentDefault.saved", { agent: name, model: props.model.name }),
+      title: language.t("dialog.model.agentDefault.saved", { agent: target.name, model: item.name }),
     })
-    dialog.close()
   }
 
+  return {
+    /** The agent's name, capitalized for headings; nothing when the chat has no agent. */
+    label: () => {
+      const name = agent()?.name
+
+      return name ? name.charAt(0).toUpperCase() + name.slice(1) : undefined
+    },
+    available: () => !!agent(),
+    current,
+    is,
+    save,
+  }
+}
+
+// A pushpin. Outlined when the model is not the default; filled when it is.
+function PinIcon(props: { filled: boolean }) {
   return (
-    <Dialog size="large" variant="settings">
-      <DialogHeader hideClose={true} closeLabel={language.t("common.close")}>
-        <DialogTitleGroup
-          title={language.t("dialog.model.agentDefault.title", { model: props.model.name })}
-          description={language.t("dialog.model.agentDefault.description")}
-        />
-      </DialogHeader>
-      <DialogBody class="flex min-h-0 flex-1 flex-col">
-        <div class="settings-panel settings-models min-h-0 flex-1 overflow-y-auto pb-4" data-scrollable>
-          <For each={groups()}>
-            {(group) => (
-              <Show when={group.items.length > 0}>
-                <div class="px-1 pt-3 pb-1 text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-muted">
-                  {group.title}
-                </div>
-                <SettingsList>
-                  <For each={group.items}>
-                    {(agent) => (
-                      <button
-                        type="button"
-                        data-component="settings-row"
-                        disabled={saving() !== undefined}
-                        class="-mx-4 w-[calc(100%+32px)] px-4 text-start hover:bg-v2-overlay-simple-overlay-hover focus-visible:-outline-offset-2"
-                        onClick={() => void save(agent)}
-                      >
-                        <div data-slot="settings-row-copy">
-                          <div data-slot="settings-row-title" class="min-w-0 truncate capitalize">
-                            {agent.name}
-                          </div>
-                          <div data-slot="settings-row-description" class="min-w-0 truncate">
-                            {current(agent)}
-                          </div>
-                        </div>
-                        <div data-slot="settings-row-control" class="size-4">
-                          <Show
-                            when={
-                              agent.model?.providerID === props.model.providerID &&
-                              agent.model.modelID === props.model.modelID
-                            }
-                          >
-                            <Icon name="check" class="shrink-0 text-v2-icon-icon-base" />
-                          </Show>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </SettingsList>
-              </Show>
-            )}
-          </For>
-        </div>
-        <div class="flex justify-end pt-2">
-          <Button variant="ghost" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-        </div>
-      </DialogBody>
-    </Dialog>
+    <svg
+      data-slot="icon-svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill={props.filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-3 3v2h5.97v7l1.03 1 1.03-1v-7H19v-2a3 3 0 0 1-3-3Z" />
+    </svg>
+  )
+}
+
+/** The row control that makes its model the current agent's default. Not a nested button, and it never selects the row. */
+export function DefaultModelPin(props: { item: Item; agentDefault: AgentDefault; mobile?: boolean }) {
+  const language = useLanguage()
+  const label = () => language.t("dialog.model.agentDefault.action")
+
+  return (
+    <Show when={props.agentDefault.available()}>
+      <Tooltip placement="top" gutter={4} inactive={props.mobile} value={label()} ignoreSafeArea={false}>
+        <span
+          role="button"
+          tabIndex={-1}
+          data-slot="model-default-pin"
+          data-active={props.agentDefault.is(props.item) ? "" : undefined}
+          aria-label={label()}
+          aria-pressed={props.agentDefault.is(props.item)}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void props.agentDefault.save(props.item)
+          }}
+        >
+          <PinIcon filled={props.agentDefault.is(props.item)} />
+        </span>
+      </Tooltip>
+    </Show>
+  )
+}
+
+// A star, drawn like the pin so the two controls read as different things.
+function StarIcon(props: { filled: boolean }) {
+  return (
+    <svg
+      data-slot="icon-svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill={props.filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8L12 3Z" />
+    </svg>
+  )
+}
+
+/** A favorite toggle for rows that have no other way to favorite a model. */
+export function FavoriteStar(props: { active: boolean; label: string; mobile?: boolean; onToggle: () => void }) {
+  return (
+    <Tooltip placement="top" gutter={4} inactive={props.mobile} value={props.label} ignoreSafeArea={false}>
+      <span
+        role="button"
+        tabIndex={-1}
+        data-slot="model-favorite-star"
+        data-active={props.active ? "" : undefined}
+        aria-label={props.label}
+        aria-pressed={props.active}
+        onMouseDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onToggle()
+        }}
+      >
+        <StarIcon filled={props.active} />
+      </span>
+    </Tooltip>
   )
 }

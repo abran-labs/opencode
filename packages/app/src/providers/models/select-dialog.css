@@ -238,3 +238,43 @@
     user-select: none;
   }
 }
+
+[data-slot="model-default-pin"],
+[data-slot="model-favorite-star"] {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--v2-icon-icon-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--v2-overlay-simple-overlay-hover);
+    color: var(--v2-icon-icon-base);
+  }
+}
+
+/* The set state is always visible and high contrast, so the default and the favorites read at a glance. */
+[data-slot="model-default-pin"][data-active] {
+  color: var(--v2-icon-icon-accent);
+}
+
+[data-slot="model-favorite-star"][data-active] {
+  color: var(--v2-icon-icon-accent);
+}
+
+[data-slot="model-default-section"] {
+  margin-bottom: 4px;
+}
+
+/* Desktop rows reveal the unset controls on hover or highlight; touch screens have neither, so they always show. */
+@media (hover: hover) {
+  [data-component="search-list"]
+    [data-slot="search-list-row"]:not([data-active], :hover)
+    :is([data-slot="model-default-pin"], [data-slot="model-favorite-star"]):not([data-active]) {
+    visibility: hidden;
+  }
+}

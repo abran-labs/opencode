@@ -1,35 +1,54 @@
 import { expect, story } from "../../stories/playwright/story"
 
-story.beforeEach(async ({ mount }) => {
+story("the pin saves the current agent's default, which leads the list once", async ({ page, mount }) => {
   await mount("app-dialog-model-selector--agent-default")
+  const saved = page.locator('[data-slot="config-requests"] li')
+  const search = page.getByRole("combobox", { name: "Search models" })
+  const option = (name: RegExp) => page.getByRole("option", { name })
+
+  // Plan's configured model leads under its own heading and is not repeated in its provider group.
+  await expect(page.getByText("Default for Plan")).toBeVisible()
+  await expect(option(/Claude Sonnet 5/)).toHaveCount(1)
+  await expect(page.locator('[data-slot="search-list-row"]').first()).toContainText("Claude Sonnet 5")
+  await expect(option(/Claude Sonnet 5/).locator('[data-slot="model-default-pin"]')).toHaveAttribute("data-active", "")
+
+  await search.fill("Kimi")
+  const row = option(/Kimi K3/)
+  await row.hover()
+  await row.locator('[data-slot="model-default-pin"]').hover()
+  await expect(page.getByText("Set as default model")).toBeVisible()
+  await row.getByRole("button", { name: "Set as default model" }).click()
+
+  await expect(saved).toHaveText([JSON.stringify({ agents: { plan: { model: "opencode-go/kimi-k3" } } })])
+  // The new default moves to the top at once, still once, and the old one is just a row again.
+  await expect(page.locator('[data-slot="search-list-row"]').first()).toContainText("Kimi K3")
+  await expect(option(/Kimi K3/)).toHaveCount(1)
+  await expect(row.locator('[data-slot="model-default-pin"]')).toHaveAttribute("data-active", "")
+
+  // The shortcut saves the highlighted row, with no second control involved.
+  await search.fill("Pickle")
+  await page.keyboard.press("ControlOrMeta+g")
+  await expect(saved).toHaveCount(2)
+  await expect(saved.nth(1)).toHaveText(JSON.stringify({ agents: { plan: { model: "opencode/big-pickle" } } }))
+  await search.fill("Kimi")
+
+  // A normal click still selects for the chat and saves nothing more.
+  await row.click()
+  await expect(page.getByRole("button", { name: "Kimi K3" })).toBeVisible()
+  await expect(saved).toHaveCount(2)
 })
 
-story("saves the chosen model for an agent and leaves the session model alone", async ({ page }) => {
-  const session = page.getByRole("button", { name: "Claude Opus 5.5" })
-  const saved = page.locator('[data-slot="config-requests"] li')
+story("the free picker sorts default, then favorites, and stars without selecting", async ({ page, mount }) => {
+  await mount("app-dialog-select-model--without-providers")
+  const rows = page.locator("button[data-model-row]")
 
-  const pick = async (agent: string) => {
-    await page.getByRole("combobox", { name: "Search models" }).fill("Kimi")
-    await page.keyboard.press("ArrowDown")
-    await page.keyboard.press("ControlOrMeta+g")
-    await expect(page.getByText("Set default for agent: Kimi K3")).toBeVisible()
-    await page.getByRole("button", { name: new RegExp(`^${agent}`) }).click()
-  }
+  await expect(rows.first()).toContainText("North Mini Code")
+  await expect(rows.first()).toContainText("Default for Plan")
 
-  await pick("Explore")
-  await expect(saved).toHaveText([JSON.stringify({ agents: { explore: { model: "opencode-go/kimi-k3#fast" } } })])
-
-  await session.click()
-  await page.getByRole("combobox", { name: "Search models" }).fill("Kimi")
-  await page.keyboard.press("ArrowDown")
-  await page.keyboard.press("ControlOrMeta+g")
-  // The effective variant shows, and a different model does not inherit it.
-  await expect(page.getByText("Current default: Claude Opus 5.5 (high)")).toBeVisible()
-  await expect(page.getByText("Current default: Kimi K3 (fast)")).toBeVisible()
-  await page.getByRole("button", { name: /^Review/ }).click()
-  await expect(saved).toHaveCount(2)
-  await expect(saved.nth(1)).toHaveText(JSON.stringify({ agents: { review: { model: "opencode-go/kimi-k3" } } }))
-
-  // The session still uses the model it had.
-  await expect(session).toBeVisible()
+  await page.getByRole("button", { name: "Favorite" }).nth(2).click()
+  const starred = await rows.nth(1).innerText()
+  expect(starred).toContain("Free")
+  await expect(page.getByRole("button", { name: "Unfavorite" })).toHaveCount(1)
+  // The star neither selects the model nor closes the dialog.
+  await expect(rows.first()).toBeVisible()
 })

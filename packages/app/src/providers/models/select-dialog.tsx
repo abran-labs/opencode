@@ -30,7 +30,8 @@ import { SearchHighlight, SearchList, type SearchListHandle, type SearchListRow 
 import { Tooltip } from "@opencode/ui/tooltip"
 import { TextInput } from "@opencode/ui/text-input"
 import { ModelTooltip } from "./tooltip"
-import { useAgentDefault } from "./agent-default-open"
+import { DefaultModelPin, useAgentDefault } from "./agent-default"
+import { withAgentDefault } from "./agent-default-selection"
 import { ModelDetails } from "./details"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ExternalLink } from "@/runtime/platform/external-link"
@@ -117,6 +118,8 @@ const ModelList: Component<{
     onSelect: props.onSelect,
   })
 
+  const agentDefault = useAgentDefault(props.model)
+
   const [store, setStore] = createStore<{
     search: string
     active: string
@@ -128,7 +131,9 @@ const ModelList: Component<{
   })
 
   const models = createMemo(() => controller.models(store.search))
-  const modelGroups = createMemo(() => controller.groups(models()))
+  // The agent's default leads the list and is left out of its provider group, so it shows once.
+  const pinned = createMemo(() => models().find(agentDefault.is))
+  const modelGroups = createMemo(() => controller.groups(models().filter((item) => item !== pinned())))
   const managed = createMemo(() => consoleModelGroup(controller.all()))
   const expanded = (provider: string) => store.search.length > 0 || !store.collapsed[provider]
   const managedIDs = createMemo(() => new Set(managed()?.providers.map((provider) => provider.id) ?? []))
@@ -137,8 +142,9 @@ const ModelList: Component<{
   const visibleModels = () => {
     const groups = modelGroups()
     const first = groups.findIndex((group) => managedIDs().has(group.category))
+    const lead = pinned()
 
-    return groups.flatMap((group, index) => {
+    return [...(lead ? [lead] : []), ...groups.flatMap((group, index) => {
       if (!managedIDs().has(group.category)) return expanded(group.category) ? group.items : []
 
       if (index !== first || !expanded(CONSOLE_GROUP_KEY)) return []
@@ -146,7 +152,7 @@ const ModelList: Component<{
       return groups
         .filter((item) => managedIDs().has(item.category) && expanded(item.category))
         .flatMap((item) => item.items)
-    })
+    })]
   }
 
   let scrollRef: HTMLDivElement | undefined
@@ -224,10 +230,11 @@ const ModelList: Component<{
                   <Show when={usage(item)}>{(value) => <ModelUsageTag usage={value()} />}</Show>
                 </div>
               </div>
-              <div data-slot="settings-row-control" class="size-4">
+              <div data-slot="settings-row-control" class="flex items-center gap-1">
                 <Show when={controller.current() === modelKey(item)}>
-                  <Icon name="check" class="shrink-0 text-v2-icon-icon-base" />
+                  <Icon name="check" class="size-4 shrink-0 text-v2-icon-icon-base" />
                 </Show>
+                <DefaultModelPin item={item} agentDefault={agentDefault} mobile />
               </div>
             </button>
           )}
@@ -290,6 +297,20 @@ const ModelList: Component<{
             when={models().length > 0}
             fallback={<div class="settings-models-status">{language.t("dialog.model.empty")}</div>}
           >
+            <Show when={pinned()}>
+              {(item) => (
+                <section data-slot="model-default-section">
+                  <h3 class="settings-models-group-header">
+                    <span class="settings-models-group-label">
+                      <bdi class="settings-models-group-title">
+                        {language.t("dialog.model.agentDefault.section", { agent: agentDefault.label() ?? "" })}
+                      </bdi>
+                    </span>
+                  </h3>
+                  <ModelRows items={[item()]} mobile={props.mobile} />
+                </section>
+              )}
+            </Show>
             <ProviderModelSections
               groups={modelGroups()}
               managed={managed()}
@@ -326,9 +347,6 @@ export function ModelSelectorDrawer(props: {
   })
 
   const chatgptPlan = createChatgptPlan(controller.current)
-  const agentDefault = useAgentDefault()
-  const currentItem = () => controller.all().find((item) => modelKey(item) === controller.current())
-
   const manage = async () => {
     const { DialogManageModels } = await import("./manage")
     void dialog.show(() => <DialogManageModels />)
@@ -346,10 +364,6 @@ export function ModelSelectorDrawer(props: {
       model={props.model}
       provider={props.provider}
       onConnect={connect}
-      onAgentDefault={() => {
-        const item = currentItem()
-        if (item) void agentDefault(item)
-      }}
       chatgptPlan={chatgptPlan()}
       onClose={() => props.onClose?.()}
     />
@@ -364,7 +378,6 @@ function ModelDrawer(props: {
   onClose: () => void
   onManage: () => void
   onConnect?: () => void
-  onAgentDefault: () => void
 }) {
   const language = useLanguage()
   const [drawer, setDrawer] = createSignal(createModelDrawerState())
@@ -387,7 +400,6 @@ function ModelDrawer(props: {
 
       if (effect.action === "connect") return props.onConnect?.()
 
-      if (effect.action === "agentDefault") return props.onAgentDefault()
       queueMicrotask(props.onClose)
     })
   }
@@ -450,14 +462,6 @@ function ModelDrawer(props: {
                   onClick={() => dispatch({ type: "action.selected", action: "manage" })}
                 >
                   {language.t("dialog.model.manage")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  class="w-full !h-10 !justify-start"
-                  icon="models"
-                  onClick={() => dispatch({ type: "action.selected", action: "agentDefault" })}
-                >
-                  {language.t("dialog.model.agentDefault.action")}
                 </Button>
                 <Show when={props.onConnect}>
                   <Button
@@ -574,8 +578,8 @@ function createProviderLabels(all: () => ModelItem[]) {
 
 type ModelGroup = { category: string; items: ModelItem[]; title?: string }
 
-// Favorites and recent models lead the list until a search narrows it. As in the TUI, they then leave their provider
-// group, so no model is listed twice.
+// The current agent's default leads, then favorites and recent models, until a search narrows the rest. Each model is
+// listed once, in the first section that has it. As in the TUI, they leave their provider group.
 function withSections(input: {
   groups: ModelGroup[]
   favorites: ModelItem[]
@@ -652,6 +656,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     onSelect: () => dialog.close(),
   })
 
+  const agentDefault = useAgentDefault(props.model)
   const labels = createProviderLabels(controller.all)
   const chatgptPlan = createChatgptPlan(controller.current)
   const usage = createModelUsage({ refresh: true })
@@ -668,15 +673,21 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
 
   const groups = createMemo((): ModelGroup[] => {
     const providers = controller.groups(controller.models(query.search))
+    const title = language.t("dialog.model.agentDefault.section", { agent: agentDefault.label() ?? "" })
 
-    if (query.search.trim()) return providers
+    // A search keeps the default on top only when it matches.
+    if (query.search.trim()) return withAgentDefault(providers, agentDefault.is, title)
 
-    return withSections({
-      groups: providers,
-      favorites: controller.favorites(),
-      recent: controller.recent(),
-      titles: { favorite: language.t("dialog.model.favorites"), recent: language.t("dialog.model.recent") },
-    })
+    return withAgentDefault(
+      withSections({
+        groups: providers,
+        favorites: controller.favorites(),
+        recent: controller.recent(),
+        titles: { favorite: language.t("dialog.model.favorites"), recent: language.t("dialog.model.recent") },
+      }),
+      agentDefault.is,
+      title,
+    )
   })
 
   // A row that still shows the same model in the same section keeps its object, so a narrower search re-renders none of
@@ -732,16 +743,13 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
 
     if (index < options.length) return controller.select(item, options[index] ?? null)
 
-    if (index === options.length) return toggleFavorite(item, input)
-    void agentDefault(item)
+    toggleFavorite(item, input)
   }
 
   const manage = async () => {
     const { DialogManageModels } = await import("./manage")
     void dialog.show(() => <DialogManageModels />)
   }
-
-  const agentDefault = useAgentDefault()
 
   const location = useWorkspaceLocation()
 
@@ -938,7 +946,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     // In the flyout's menu, the arrows move through its items until the back arrow returns to the rows.
     if (item && index !== undefined && !event.metaKey && !event.altKey && !event.ctrlKey) {
       const back = language.direction() === "rtl" ? "ArrowRight" : "ArrowLeft"
-      const count = menuOptions(item).length + 2
+      const count = menuOptions(item).length + 1
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault()
@@ -977,7 +985,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
     if (matchKeybind(agentDefaultKeybind, event)) {
       if (!active) return
       event.preventDefault()
-      void agentDefault(active.item)
+      void agentDefault.save(active.item)
 
       return
     }
@@ -1081,6 +1089,7 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
             <Icon name="chevron-right" />
           </span>
         </Show>
+        <DefaultModelPin item={item()} agentDefault={agentDefault} />
       </button>
     )
   }
@@ -1136,23 +1145,6 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
                     icon={<Icon name="plus" />}
                     aria-label={language.t("command.provider.connect")}
                     onClick={connect}
-                  />
-                </Tooltip>
-                <Tooltip
-                  placement="top"
-                  gutter={4}
-                  value={language.t("dialog.model.agentDefault.action")}
-                  ignoreSafeArea={false}
-                >
-                  <IconButton
-                    variant="ghost-muted"
-                    icon={<Icon name="models" />}
-                    aria-label={language.t("dialog.model.agentDefault.action")}
-                    onClick={() => {
-                      const item =
-                        list?.active()?.item ?? controller.all().find((x) => modelKey(x) === controller.current())
-                      if (item) void agentDefault(item)
-                    }}
                   />
                 </Tooltip>
                 <Tooltip placement="top" gutter={4} value={language.t("dialog.model.manage")} ignoreSafeArea={false}>
@@ -1267,19 +1259,6 @@ export function DialogSelectModel(props: { provider?: string; model?: ModelState
                     {favorite(item()) ? language.t("dialog.model.unfavorite") : language.t("dialog.model.favorite")}
                   </span>
                   <Keybind keys={formatKeybindParts("mod+f", language.t)} variant="neutral" class="shrink-0" />
-                </div>
-                <div
-                  data-component="menu-v2-item"
-                  role="menuitem"
-                  data-highlighted={menu() === menuOptions(item()).length + 1 ? "" : undefined}
-                  onMouseEnter={() =>
-                    dispatch({ type: "menu.highlighted", index: menuOptions(item()).length + 1, input: "pointer" })
-                  }
-                  onMouseLeave={() => dispatch({ type: "menu.highlighted", index: undefined, input: "pointer" })}
-                  onClick={() => activateMenu(item(), menuOptions(item()).length + 1, "pointer")}
-                >
-                  <span data-slot="menu-v2-item-content">{language.t("dialog.model.agentDefault.action")}</span>
-                  <Keybind keys={formatKeybindParts("mod+g", language.t)} variant="neutral" class="shrink-0" />
                 </div>
                 <div data-slot="menu-v2-separator" role="separator" />
                 {/* The full name, "Workspace / Provider", where a workspace badge tells the connections apart. */}
