@@ -535,6 +535,58 @@ Use native v2 fields.`,
     ),
   )
 
+  it.live("applies global JSON agent models over global Markdown models, below project config", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const fs = yield* FSUtil.Service
+      const global = path.join(tmp.path, "global")
+      const project = path.join(tmp.path, "project")
+      yield* fs.makeDirectory(path.join(global, "agents"), { recursive: true })
+      yield* fs.makeDirectory(path.join(project, "agents"), { recursive: true })
+      yield* fs.writeFileString(
+        path.join(global, "agents", "reviewer.md"),
+        "---\nmodel: markdown/model\ndescription: Markdown description\n---\nReview carefully.",
+      )
+      yield* fs.writeFileString(path.join(global, "agents", "auditor.md"), "---\nmodel: markdown/auditor\n---\nAudit.")
+      yield* fs.writeFileString(path.join(global, "agents", "retired.md"), "---\ndisabled: true\nmodel: markdown/retired\n---\nOff.")
+      yield* fs.writeFileString(path.join(project, "agents", "auditor.md"), "---\nmodel: project/auditor\n---\nAudit.")
+      const agents = yield* Agent.Service
+      yield* ConfigAgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+        Effect.provide(
+          Config.testLayer([
+            new Document({
+              type: "document",
+              path: AbsolutePath.make(path.join(global, "opencode.json")),
+              info: decode({
+                agents: {
+                  reviewer: { model: "global/model", description: "JSON description" },
+                  auditor: { model: "global/auditor" },
+                  retired: { model: "global/retired" },
+                  ghost: { disabled: true, model: "global/ghost" },
+                },
+              }),
+            }),
+            directoryEntry(global),
+            directoryEntry(project),
+          ]),
+        ),
+        Effect.provide(Global.layerWith({ config: global, home: path.join(tmp.path, "home") })),
+      )
+
+      // Only the model is replayed: the Markdown description still wins over the JSON one.
+      expect(yield* agents.get(Agent.ID.make("reviewer"))).toMatchObject({
+        model: { providerID: "global", id: "model" },
+        description: "Markdown description",
+        system: "Review carefully.",
+      })
+      expect(yield* agents.get(Agent.ID.make("auditor"))).toMatchObject({
+        model: { providerID: "project", id: "auditor" },
+      })
+      expect(yield* agents.get(Agent.ID.make("retired"))).toBeUndefined()
+      expect(yield* agents.get(Agent.ID.make("ghost"))).toBeUndefined()
+    }),
+  )
+
   it.live("reads agent files that use V2 fields as V2", () =>
     Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
       Effect.flatMap((tmp) =>
