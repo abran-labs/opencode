@@ -307,21 +307,26 @@ export function DialogFooter(props: DialogFooterProps) {
       flexDirection="row"
       justifyContent="space-between"
       gap={newDesigns() ? 2 : undefined}
+      // The groups keep their natural width and the primary group drops to its own row when both do not fit.
+      flexWrap={newDesigns() ? "wrap" : undefined}
       flexShrink={0}
     >
       <box
         flexDirection={narrow() ? "column" : "row"}
         gap={narrow() || newDesigns() ? 0 : 2}
         columnGap={newDesigns() && !narrow() ? 1 : undefined}
-        // Under new designs the primary group keeps its width and the secondary group wraps instead of overlapping.
+        // Under new designs each group keeps its width and its own items wrap instead of being squeezed.
         flexWrap={newDesigns() ? "wrap" : undefined}
-        flexShrink={newDesigns() ? 1 : undefined}
-        minWidth={newDesigns() ? 0 : undefined}
+        flexShrink={newDesigns() ? 0 : undefined}
       >
         {content()}
         <For each={secondary()}>{(action) => <DialogFooterItem action={action} variant="secondary" />}</For>
       </box>
-      <box flexDirection="row" gap={newDesigns() ? 1 : 2} flexShrink={newDesigns() ? 0 : undefined}>
+      <box
+        flexDirection="row"
+        gap={newDesigns() ? 1 : 2}
+        flexShrink={newDesigns() ? 0 : undefined}
+      >
         <For each={primary()}>{(action) => <DialogFooterItem action={action} variant="primary" />}</For>
       </box>
     </box>
